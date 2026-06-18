@@ -1,0 +1,24 @@
+0 verbose cli D:\Other\Node Js\node.exe D:\Other\Node Js\node_modules\npm\bin\npm-cli.js
+1 info using npm@10.9.4
+2 info using node@v22.21.0
+3 silly config load:file:D:\Other\Node Js\node_modules\npm\npmrc
+4 silly config load:file:C:\Users\ParsaAh\.npmrc
+5 silly config load:file:D:\Other\npm-global\etc\npmrc
+6 verbose title npm list
+7 verbose argv "list" "--global" "--depth" "0"
+8 verbose logfile logs-max:10 dir:D:\Git\RockPaperScissors Bot Tg\npm-cache\_logs\2026-06-18T13_21_41_895Z-
+9 verbose logfile D:\Git\RockPaperScissors Bot Tg\npm-cache\_logs\2026-06-18T13_21_41_895Z-debug-0.log
+10 silly packumentCache heap:4345298944 maxSize:1086324736 maxEntrySize:543162368
+11 silly logfile done cleaning log files
+12 http fetch GET 200 https://registry.npmjs.org/npm 984ms
+13 verbose cwd D:\Git\RockPaperScissors Bot Tg
+14 verbose os Windows_NT 10.0.26200
+15 verbose node v22.21.0
+16 verbose npm  v10.9.4
+17 notice
+17 notice New major version of npm available! 10.9.4 -> 11.17.0
+17 notice Changelog: https://github.com/npm/cli/releases/tag/v11.17.0
+17 notice To update run: npm install -g npm@11.17.0
+17 notice  { force: true, [Symbol(proc-log.meta)]: true }
+18 verbose exit 0
+19 info ok
