@@ -280,8 +280,12 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
     user = chosen.from_user
     inline_message_id = chosen.inline_message_id
 
+    logger.info("chosen_inline_result: user=%s (%s), inline_msg_id=%s",
+                user.id, user.full_name, inline_message_id)
+
     if not inline_message_id:
-        return  # کلاینت inline_message_id را نفرستاده (به‌ندرت پیش می‌آید)
+        logger.warning("inline_message_id خالی بود!")
+        return
 
     game_id = str(uuid.uuid4())[:12]
     db.create_game(game_id, chat_id=None, p1_id=user.id, p1_name=user.full_name)
@@ -291,6 +295,7 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
     text = build_lobby_text(game)
     keyboard = build_lobby_keyboard(game_id, p2_joined=False)
 
+    edited = False
     try:
         await context.bot.edit_message_text(
             inline_message_id=inline_message_id,
@@ -298,8 +303,24 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
             parse_mode=ParseMode.HTML,
             reply_markup=keyboard,
         )
+        edited = True
+        logger.info("لابی بازی %s با edit ادیت شد.", game_id)
     except TelegramError as e:
-        logger.warning("خطا در نمایش لابی بازی: %s", e)
+        logger.warning("edit ناموفق برای بازی %s: %s", game_id, e)
+
+    if not edited:
+        # اگه edit کار نکرد، پیام جدید به پیوی کاربر بفرست
+        try:
+            sent = await context.bot.send_message(
+                chat_id=user.id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboard,
+            )
+            db.set_message_ref(game_id, chat_id=sent.chat_id, message_id=sent.message_id)
+            logger.info("لابی بازی %s به پیوی کاربر %s ارسال شد.", game_id, user.id)
+        except TelegramError as e2:
+            logger.error("ارسال پیام لابی به پیوی کاربر %s ناموفق: %s", user.id, e2)
 
 
 # -------------------------------------------------------------------------
