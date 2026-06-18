@@ -242,11 +242,26 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_username = context.bot.username
     text = (
         "سلام! 👋\n"
-        "برای شروع بازی سنگ کاغذ قیچی، در هر چتی (گروه یا خصوصی) بنویسید:\n"
-        f"<code>@{bot_username}</code>\n"
-        "و روی نتیجه‌ای که نمایش داده می‌شود کلیک کنید."
+        "برای شروع بازی سنگ کاغذ قیچی:\n\n"
+        f"🔹 <b>روش اینلاین:</b> در هر چتی بنویسید <code>@{bot_username}</code>\n"
+        f"🔹 <b>روش دستی:</b> دستور /newgame را بزنید\n"
     )
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+
+async def newgame_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع بازی جدید با دستور /newgame - جایگزین inline."""
+    user = update.effective_user
+    game_id = str(uuid.uuid4())[:12]
+    db.create_game(game_id, chat_id=update.effective_chat.id, p1_id=user.id, p1_name=user.full_name)
+
+    game = db.get_game(game_id)
+    text = build_lobby_text(game)
+    keyboard = build_lobby_keyboard(game_id, p2_joined=False)
+
+    sent = await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    db.set_message_ref(game_id, chat_id=sent.chat_id, message_id=sent.message_id)
+    logger.info("بازی جدید %s با /newgame ساخته شد.", game_id)
 
 
 # -------------------------------------------------------------------------
@@ -263,12 +278,12 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             "🎮 <b>بازی سنگ کاغذ قیچی</b>\n\nدر حال آماده‌سازی بازی...",
             parse_mode=ParseMode.HTML,
         ),
-        # دکمه‌های واقعی بعداً وقتی پیام ارسال شد (chosen_inline_result) ست می‌شوند
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton("در حال بارگذاری...", callback_data="noop")]]
         ),
     )
     await query.answer([result], cache_time=1, is_personal=True)
+    logger.info("inline query از کاربر %s دریافت شد.", query.from_user.id)
 
 
 # -------------------------------------------------------------------------
@@ -280,11 +295,11 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
     user = chosen.from_user
     inline_message_id = chosen.inline_message_id
 
-    logger.info("chosen_inline_result: user=%s (%s), inline_msg_id=%s",
-                user.id, user.full_name, inline_message_id)
+    logger.info("=== chosen_inline_result handler شروع شد ===")
+    logger.info("user=%s (%s), inline_msg_id=%s", user.id, user.full_name, inline_message_id)
 
     if not inline_message_id:
-        logger.warning("inline_message_id خالی بود!")
+        logger.error("inline_message_id خالی بود! کلاینت آن را نفرستاده.")
         return
 
     game_id = str(uuid.uuid4())[:12]
@@ -295,7 +310,7 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
     text = build_lobby_text(game)
     keyboard = build_lobby_keyboard(game_id, p2_joined=False)
 
-    edited = False
+    # روش ۱: edit_message_text
     try:
         await context.bot.edit_message_text(
             inline_message_id=inline_message_id,
@@ -303,24 +318,34 @@ async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEF
             parse_mode=ParseMode.HTML,
             reply_markup=keyboard,
         )
-        edited = True
-        logger.info("لابی بازی %s با edit ادیت شد.", game_id)
+        logger.info("روش ۱ (edit_message_text) موفق بود. game_id=%s", game_id)
+        return
     except TelegramError as e:
-        logger.warning("edit ناموفق برای بازی %s: %s", game_id, e)
+        logger.warning("روش ۱ (edit_message_text) ناموفق: %s", e)
 
-    if not edited:
-        # اگه edit کار نکرد، پیام جدید به پیوی کاربر بفرست
-        try:
-            sent = await context.bot.send_message(
-                chat_id=user.id,
-                text=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=keyboard,
-            )
-            db.set_message_ref(game_id, chat_id=sent.chat_id, message_id=sent.message_id)
-            logger.info("لابی بازی %s به پیوی کاربر %s ارسال شد.", game_id, user.id)
-        except TelegramError as e2:
-            logger.error("ارسال پیام لابی به پیوی کاربر %s ناموفق: %s", user.id, e2)
+    # روش ۲: edit_message_reply_markup (فقط کیبورد را عوض کن)
+    try:
+        await context.bot.edit_message_reply_markup(
+            inline_message_id=inline_message_id,
+            reply_markup=keyboard,
+        )
+        logger.info("روش ۲ (edit_message_reply_markup) موفق بود. game_id=%s", game_id)
+        return
+    except TelegramError as e:
+        logger.warning("روش ۲ (edit_message_reply_markup) ناموفق: %s", e)
+
+    # روش ۳: send_message به پیوی کاربر
+    try:
+        sent = await context.bot.send_message(
+            chat_id=user.id,
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard,
+        )
+        db.set_message_ref(game_id, chat_id=sent.chat_id, message_id=sent.message_id)
+        logger.info("روش ۳ (send_message به پیوی) موفق بود. game_id=%s", game_id)
+    except TelegramError as e2:
+        logger.error("روش ۳ هم ناموفق: %s", e2)
 
 
 # -------------------------------------------------------------------------
@@ -527,6 +552,7 @@ def main():
     application = Application.builder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("newgame", newgame_command))
     application.add_handler(InlineQueryHandler(inline_query_handler))
     application.add_handler(ChosenInlineResultHandler(chosen_inline_result_handler))
     application.add_handler(CallbackQueryHandler(callback_query_handler))
