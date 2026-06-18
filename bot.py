@@ -34,7 +34,6 @@ from telegram.ext import (
     Application,
     CommandHandler,
     InlineQueryHandler,
-    ChosenInlineResultHandler,
     CallbackQueryHandler,
     ContextTypes,
 )
@@ -270,82 +269,27 @@ async def newgame_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.inline_query
-    result = InlineQueryResultArticle(
-        id=str(uuid.uuid4()),
-        title="🎮 بازی سنگ کاغذ قیچی",
-        description="یک بازی سنگ کاغذ قیچی با دوستانت در این چت شروع کن!",
-        input_message_content=InputTextMessageContent(
-            "🎮 <b>بازی سنگ کاغذ قیچی</b>\n\nدر حال آماده‌سازی بازی...",
-            parse_mode=ParseMode.HTML,
-        ),
-        reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("در حال بارگذاری...", callback_data="noop")]]
-        ),
-    )
-    await query.answer([result], cache_time=1, is_personal=True)
-    logger.info("inline query از کاربر %s دریافت شد.", query.from_user.id)
-
-
-# -------------------------------------------------------------------------
-# هندلر chosen_inline_result -> وقتی کاربر واقعاً نتیجه را ارسال کرد
-# -------------------------------------------------------------------------
-
-async def chosen_inline_result_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chosen = update.chosen_inline_result
-    user = chosen.from_user
-    inline_message_id = chosen.inline_message_id
-
-    logger.info("=== chosen_inline_result handler شروع شد ===")
-    logger.info("user=%s (%s), inline_msg_id=%s", user.id, user.full_name, inline_message_id)
-
-    if not inline_message_id:
-        logger.error("inline_message_id خالی بود! کلاینت آن را نفرستاده.")
-        return
+    user = query.from_user
 
     game_id = str(uuid.uuid4())[:12]
     db.create_game(game_id, chat_id=None, p1_id=user.id, p1_name=user.full_name)
-    db.set_message_ref(game_id, inline_message_id=inline_message_id)
 
     game = db.get_game(game_id)
     text = build_lobby_text(game)
     keyboard = build_lobby_keyboard(game_id, p2_joined=False)
 
-    # روش ۱: edit_message_text
-    try:
-        await context.bot.edit_message_text(
-            inline_message_id=inline_message_id,
-            text=text,
+    result = InlineQueryResultArticle(
+        id=str(uuid.uuid4()),
+        title="🎮 بازی سنگ کاغذ قیچی",
+        description="یک بازی سنگ کاغذ قیچی با دوستانت در این چت شروع کن!",
+        input_message_content=InputTextMessageContent(
+            text,
             parse_mode=ParseMode.HTML,
-            reply_markup=keyboard,
-        )
-        logger.info("روش ۱ (edit_message_text) موفق بود. game_id=%s", game_id)
-        return
-    except TelegramError as e:
-        logger.warning("روش ۱ (edit_message_text) ناموفق: %s", e)
-
-    # روش ۲: edit_message_reply_markup (فقط کیبورد را عوض کن)
-    try:
-        await context.bot.edit_message_reply_markup(
-            inline_message_id=inline_message_id,
-            reply_markup=keyboard,
-        )
-        logger.info("روش ۲ (edit_message_reply_markup) موفق بود. game_id=%s", game_id)
-        return
-    except TelegramError as e:
-        logger.warning("روش ۲ (edit_message_reply_markup) ناموفق: %s", e)
-
-    # روش ۳: send_message به پیوی کاربر
-    try:
-        sent = await context.bot.send_message(
-            chat_id=user.id,
-            text=text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=keyboard,
-        )
-        db.set_message_ref(game_id, chat_id=sent.chat_id, message_id=sent.message_id)
-        logger.info("روش ۳ (send_message به پیوی) موفق بود. game_id=%s", game_id)
-    except TelegramError as e2:
-        logger.error("روش ۳ هم ناموفق: %s", e2)
+        ),
+        reply_markup=keyboard,
+    )
+    await query.answer([result], cache_time=1, is_personal=True)
+    logger.info("inline query: game_id=%s از کاربر %s", game_id, user.id)
 
 
 # -------------------------------------------------------------------------
@@ -386,6 +330,10 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
 
         await query.answer("به بازی پیوستید! ✅")
         game = db.get_game(game_id)
+
+        if query.inline_message_id:
+            db.set_message_ref(game_id, inline_message_id=query.inline_message_id)
+
         text = build_lobby_text(game)
         keyboard = build_lobby_keyboard(game_id, p2_joined=True)
         await edit_lobby_message(context, game, text, keyboard)
@@ -410,6 +358,9 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         if game["status"] not in ("ready",):
             await query.answer("بازی در حال انجام است.", show_alert=True)
             return
+
+        if query.inline_message_id and not game.get("inline_message_id"):
+            db.set_message_ref(game_id, inline_message_id=query.inline_message_id)
 
         db.start_round(game_id)
         game = db.get_game(game_id)
@@ -554,7 +505,6 @@ def main():
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("newgame", newgame_command))
     application.add_handler(InlineQueryHandler(inline_query_handler))
-    application.add_handler(ChosenInlineResultHandler(chosen_inline_result_handler))
     application.add_handler(CallbackQueryHandler(callback_query_handler))
 
     logger.info("ربات در حال اجراست...")
